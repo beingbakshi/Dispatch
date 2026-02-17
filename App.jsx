@@ -99,6 +99,8 @@ export default function App() {
     dispatchFrom: "Mumuksh Impex LLP, Ranala Shivar, Ranala, Nadurbar, Maharastra-425411",
     dispatchTo: '', vehicleNo: '', driverName: '', driverNo: '', transporterName: '', lrNo: '',
     challanNo: '', date: new Date().toISOString().split('T')[0],
+    vehicleIn: '',  // Gadi kis date ko kitne baje aayi (datetime-local)
+    vehicleOut: '', // Gadi kis date ko kitne baje gayi (datetime-local)
     loadingType: 'regular', // 'regular' or 'grade'
     items: [{ product: '', size: '', pcs: '', packPerCtn: '', totalCtn: '', avgWeightKg: '' }],
     gradeItems: [{ grade: '', bags: '', kgs: '' }], // For A, B, C grade diapers
@@ -495,6 +497,19 @@ export default function App() {
     doc.text(rightX + 28, yRight, loadingTypeLabel);
     yRight += lineH;
 
+    if (loadingForm.vehicleIn || loadingForm.vehicleOut) {
+      doc.setFont("helvetica", "bold");
+      doc.text("Vehicle In:", leftX, y);
+      doc.setFont("helvetica", "normal");
+      doc.text(leftX + 25, y, loadingForm.vehicleIn ? new Date(loadingForm.vehicleIn).toLocaleString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "-");
+      y += lineH;
+      doc.setFont("helvetica", "bold");
+      doc.text("Vehicle Out:", leftX, y);
+      doc.setFont("helvetica", "normal");
+      doc.text(leftX + 25, y, loadingForm.vehicleOut ? new Date(loadingForm.vehicleOut).toLocaleString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "-");
+      y += lineH;
+    }
+
     const startY = Math.max(y, yRight) + 6;
 
     // Main loading section: Grade-based or Regular
@@ -651,6 +666,8 @@ export default function App() {
       ["Transporter Name", loadingForm.transporterName || ""],
       ["LR No.", loadingForm.lrNo || ""],
       ["Loading Type", loadingForm.loadingType === "grade" ? "Grade Based (A/B/C)" : "Regular (Carton Based)"],
+      ["Vehicle In (Date & Time)", loadingForm.vehicleIn ? new Date(loadingForm.vehicleIn).toLocaleString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : ""],
+      ["Vehicle Out (Date & Time)", loadingForm.vehicleOut ? new Date(loadingForm.vehicleOut).toLocaleString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : ""],
       [],
     ];
     if (loadingForm.loadingType === "grade") {
@@ -1461,6 +1478,20 @@ export default function App() {
               value={loadingForm.lrNo}
               onChange={e => setLoadingForm({ ...loadingForm, lrNo: e.target.value })}
               icon={<FileDigit size={14} />}
+            />
+            <Input
+              label="Vehicle In (Date & Time)"
+              type="datetime-local"
+              value={loadingForm.vehicleIn}
+              onChange={e => setLoadingForm({ ...loadingForm, vehicleIn: e.target.value })}
+              icon={<Clock size={14} />}
+            />
+            <Input
+              label="Vehicle Out (Date & Time)"
+              type="datetime-local"
+              value={loadingForm.vehicleOut}
+              onChange={e => setLoadingForm({ ...loadingForm, vehicleOut: e.target.value })}
+              icon={<Clock size={14} />}
             />
           </div>
         </div>
