@@ -551,20 +551,28 @@ export default function App() {
       currentY = doc.lastAutoTable.finalY + 8;
     } else {
       const items = loadingForm.items || [];
+      const calcTotalPcs = (i) => {
+        const sz = parseFloat((String(i.size || '').match(/\d+/)?.[0]) || 0);
+        const pk = parseFloat(i.packPerCtn) || 0;
+        const ct = parseFloat(i.totalCtn) || 0;
+        return sz * pk * ct;
+      };
       const tableData = items.map((item, index) => [
         index + 1,
         `${item.product || ""} ${item.size ? `(${item.size})` : ""}`.trim(),
         item.packPerCtn || "",
         item.totalCtn || "",
+        calcTotalPcs(item) > 0 ? calcTotalPcs(item).toString() : "-",
         item.avgWeightKg || "-",
       ]);
 
       const totalCtn = (items || []).reduce((acc, i) => acc + (parseFloat(i.totalCtn) || 0), 0);
+      const totalPcs = (items || []).reduce((acc, i) => acc + calcTotalPcs(i), 0);
       const totalEstKg = (items || []).reduce((acc, i) => acc + (parseFloat(i.totalCtn) || 0) * (parseFloat(i.avgWeightKg) || 0), 0);
 
       doc.autoTable({
         startY: currentY,
-        head: [["Sr.", "Item Description", "Packs/Ctn", "Total Ctn", "Avg Wt (KG)"]],
+        head: [["Sr.", "Item Description", "Pkt/Ctn", "Total Ctn", "Total PCS", "Avg Wt (KG)"]],
         body: tableData,
         theme: "grid",
         headStyles: { fillColor: [241, 245, 249], textColor: [0, 0, 0], fontStyle: "bold", halign: "center" },
@@ -574,6 +582,7 @@ export default function App() {
           2: { halign: "center" },
           3: { halign: "center" },
           4: { halign: "center" },
+          5: { halign: "center" },
         },
         styles: { textColor: [0, 0, 0] },
         foot: [
@@ -582,6 +591,7 @@ export default function App() {
             "GRAND TOTAL",
             "",
             totalCtn.toString(),
+            totalPcs > 0 ? totalPcs.toString() : "-",
             totalEstKg > 0 ? totalEstKg.toString() + " KG" : "-",
           ],
         ],
@@ -676,9 +686,13 @@ export default function App() {
         rows.push([i + 1, item.grade || "", item.bags || "0", item.kgs || "0"]);
       });
     } else {
-      rows.push(["Sr.", "Item Description", "Packs/Ctn", "Total Ctn", "Avg Wt (KG)"]);
+      const calcTotalPcs = (it) => {
+        const sz = parseFloat((String(it.size || '').match(/\d+/)?.[0]) || 0);
+        return sz * (parseFloat(it.packPerCtn) || 0) * (parseFloat(it.totalCtn) || 0);
+      };
+      rows.push(["Sr.", "Item Description", "Pkt/Ctn", "Total Ctn", "Total PCS", "Avg Wt (KG)"]);
       (loadingForm.items || []).forEach((item, i) => {
-        rows.push([i + 1, `${item.product || ""} ${item.size ? `(${item.size})` : ""}`.trim(), item.packPerCtn || "", item.totalCtn || "", item.avgWeightKg || ""]);
+        rows.push([i + 1, `${item.product || ""} ${item.size ? `(${item.size})` : ""}`.trim(), item.packPerCtn || "", item.totalCtn || "", calcTotalPcs(item) || "", item.avgWeightKg || ""]);
       });
     }
     const polyItems = (loadingForm.polyItems || []).filter((p) => (p?.name ?? "").trim() !== "" || (p?.size ?? "").trim() !== "" || (parseFloat(p?.kgs) || 0) > 0);
@@ -1480,14 +1494,14 @@ export default function App() {
               icon={<FileDigit size={14} />}
             />
             <Input
-              label="Vehicle In (Date & Time)"
+              label="Gadi Aayi (Date & Time)"
               type="datetime-local"
               value={loadingForm.vehicleIn}
               onChange={e => setLoadingForm({ ...loadingForm, vehicleIn: e.target.value })}
               icon={<Clock size={14} />}
             />
             <Input
-              label="Vehicle Out (Date & Time)"
+              label="Gadi Gayi (Date & Time)"
               type="datetime-local"
               value={loadingForm.vehicleOut}
               onChange={e => setLoadingForm({ ...loadingForm, vehicleOut: e.target.value })}
@@ -1520,17 +1534,30 @@ export default function App() {
                 <h4 className="text-xl font-black text-slate-800">Product Loading Entry</h4>
                 <button onClick={addLoadingItem} className="flex items-center gap-2 px-5 py-2.5 bg-slate-900 text-white rounded-xl font-bold text-xs hover:bg-black transition-all"><Plus size={14} /> Add Line</button>
               </div>
-              <div className="space-y-4">
-                {loadingForm.items.map((item, index) => (
-                  <div key={index} className="grid grid-cols-1 md:grid-cols-12 gap-x-4 gap-y-4 p-6 bg-slate-50/50 rounded-[2rem] border border-slate-100 items-end">
-                    <div className="md:col-span-3"><Input label="Product" placeholder="Freshkins Std Pant, Premium Baby..." value={item.product} onChange={e => updateLoadingItem(index, 'product', e.target.value)} /></div>
-                    <div className="md:col-span-2"><Input label="Size" placeholder="S-42, M-75, L-38..." value={item.size} onChange={e => updateLoadingItem(index, 'size', e.target.value)} /></div>
-                    <div className="md:col-span-2"><Input label="Pack/Ctn" type="number" placeholder="48, 72..." value={item.packPerCtn} onChange={e => updateLoadingItem(index, 'packPerCtn', e.target.value)} /></div>
-                    <div className="md:col-span-2"><Input label="Total Ctn" type="number" placeholder="100, 250..." value={item.totalCtn} onChange={e => updateLoadingItem(index, 'totalCtn', e.target.value)} /></div>
-                    <div className="md:col-span-2"><Input label="Avg Wt (KG)" type="number" placeholder="12, 15..." value={item.avgWeightKg} onChange={e => updateLoadingItem(index, 'avgWeightKg', e.target.value)} /></div>
-                    <div className="md:col-span-1 flex justify-center pb-3"><button onClick={() => setLoadingForm({...loadingForm, items: loadingForm.items.filter((_, i) => i !== index)})} className="p-3 text-red-400 hover:text-red-600 transition-colors"><Trash2 size={20}/></button></div>
+              <div className="space-y-6">
+                {loadingForm.items.map((item, index) => {
+                  const sizeNum = parseFloat((String(item.size || '').match(/\d+/)?.[0]) || 0);
+                  const packNum = parseFloat(item.packPerCtn) || 0;
+                  const ctnNum = parseFloat(item.totalCtn) || 0;
+                  const totalPcs = sizeNum * packNum * ctnNum;
+                  return (
+                  <div key={index} className="p-6 bg-white rounded-[2rem] border-2 border-slate-200 shadow-sm space-y-5">
+                    <div className="w-full">
+                      <Input label="Product" placeholder="Freshkins Soft Baby Pant, Premium Baby..." value={item.product} onChange={e => updateLoadingItem(index, 'product', e.target.value)} />
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
+                      <div className="min-w-[120px]"><Input label="Size" placeholder="NB 50, S-42, M-75..." value={item.size} onChange={e => updateLoadingItem(index, 'size', e.target.value)} /></div>
+                      <div className="min-w-[120px]"><Input label="Pkt/Ctn" type="number" placeholder="12, 48..." value={item.packPerCtn} onChange={e => updateLoadingItem(index, 'packPerCtn', e.target.value)} /></div>
+                      <div className="min-w-[120px]"><Input label="Total Ctn" type="number" placeholder="100, 250..." value={item.totalCtn} onChange={e => updateLoadingItem(index, 'totalCtn', e.target.value)} /></div>
+                      <div className="min-w-[120px]">
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">Total PCS</label>
+                        <div className="w-full p-4 bg-slate-100 border-2 border-slate-200 rounded-2xl font-bold text-slate-800 text-sm">{totalPcs > 0 ? totalPcs.toLocaleString() : '-'}</div>
+                      </div>
+                      <div className="min-w-[120px]"><Input label="Avg Wt (KG)" type="number" placeholder="12, 15..." value={item.avgWeightKg} onChange={e => updateLoadingItem(index, 'avgWeightKg', e.target.value)} /></div>
+                      <div className="min-w-[120px] flex items-end justify-center pb-1"><button onClick={() => setLoadingForm({...loadingForm, items: loadingForm.items.filter((_, i) => i !== index)})} className="p-3 text-red-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors" title="Remove"><Trash2 size={20}/></button></div>
+                    </div>
                   </div>
-                ))}
+                );})}
               </div>
             </>
           ) : (
