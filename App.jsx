@@ -389,6 +389,10 @@ export default function App() {
 
   const generateChallanPDF = () => {
     if (!loadingForm.vehicleNo || !loadingForm.challanNo) return notify("Challan No and Vehicle No are required.", "error");
+    const hasItems = (loadingForm.items || []).some((i) => (i?.product ?? "").trim() !== "" || (i?.totalCtn ?? "").toString().trim() !== "" || (i?.packPerCtn ?? "").toString().trim() !== "");
+    const hasGradeItems = (loadingForm.gradeItems || []).some((g) => (g?.grade ?? "").trim() !== "" || (parseFloat(g?.bags) || 0) > 0 || (parseFloat(g?.kgs) || 0) > 0);
+    const hasPolyItems = (loadingForm.polyItems || []).some((p) => (p?.name ?? "").trim() !== "" || (p?.size ?? "").trim() !== "" || (parseFloat(p?.kgs) || 0) > 0);
+    if (!hasItems && !hasGradeItems && !hasPolyItems) return notify("Please add at least one loading item (Carton, Grade, or Poly Bag).", "error");
 
     try {
     const doc = new jsPDF();
@@ -423,9 +427,6 @@ export default function App() {
     const rightX = pageWidth - 85;
     let y = 46;
     const lineH = 6;
-    const loadingTypeLabel =
-      loadingForm.loadingType === "grade" ? "Grade Based (A / B / C)" : "Regular (Carton Based)";
-
     doc.setFontSize(9);
     doc.setFont("helvetica", "bold");
 
@@ -473,6 +474,9 @@ export default function App() {
     doc.text(leftX + 25, y, loadingForm.lrNo || "-");
     y += lineH;
 
+    // Loading type label (which sections have data)
+    const loadingTypeLabel = [hasItems && "Carton Based", hasGradeItems && "Grade Based", hasPolyItems && "Poly Bag"].filter(Boolean).join(", ") || "Regular (Carton Based)";
+
     // Right column
     let yRight = 46;
     doc.setFont("helvetica", "bold");
@@ -512,51 +516,17 @@ export default function App() {
 
     const startY = Math.max(y, yRight) + 6;
 
-    // Main loading section: Grade-based or Regular
+    // 1. Carton Based (Product Loading) - if has data
     let currentY = startY;
+    const calcTotalPcs = (i) => {
+      const sz = parseFloat((String(i.size || '').match(/\d+/)?.[0]) || 0);
+      const pk = parseFloat(i.packPerCtn) || 0;
+      const ct = parseFloat(i.totalCtn) || 0;
+      return sz * pk * ct;
+    };
 
-    if (loadingForm.loadingType === "grade") {
-      const gradeItems = loadingForm.gradeItems || [];
-      const gradeTableData = gradeItems.map((item, index) => [
-        index + 1,
-        item.grade || "",
-        item.bags || "0",
-        item.kgs || "0",
-      ]);
-
-      doc.autoTable({
-        startY: currentY,
-        head: [["Sr.", "Grade", "No. of Bags", "Total KGs"]],
-        body: gradeTableData,
-        theme: "grid",
-        headStyles: { fillColor: [241, 245, 249], textColor: [0, 0, 0], fontStyle: "bold", halign: "center" },
-        columnStyles: {
-          0: { halign: "center" }, // Sr.
-          1: { halign: "center" }, // Grade
-          2: { halign: "center" }, // No. of Bags
-          3: { halign: "center" }, // Total KGs
-        },
-        styles: { textColor: [0, 0, 0], halign: "center" },
-        foot: [
-          [
-            "",
-            "GRAND TOTAL",
-            gradeItems.reduce((acc, i) => acc + (parseFloat(i.bags) || 0), 0).toString(),
-            gradeItems.reduce((acc, i) => acc + (parseFloat(i.kgs) || 0), 0).toString(),
-          ],
-        ],
-        footStyles: { fillColor: [241, 245, 249], textColor: [0, 0, 0], fontStyle: "bold", halign: "center" },
-      });
-
-      currentY = doc.lastAutoTable.finalY + 8;
-    } else {
-      const items = loadingForm.items || [];
-      const calcTotalPcs = (i) => {
-        const sz = parseFloat((String(i.size || '').match(/\d+/)?.[0]) || 0);
-        const pk = parseFloat(i.packPerCtn) || 0;
-        const ct = parseFloat(i.totalCtn) || 0;
-        return sz * pk * ct;
-      };
+    if (hasItems) {
+      const items = (loadingForm.items || []).filter((i) => (i?.product ?? "").trim() !== "" || (i?.totalCtn ?? "").toString().trim() !== "" || (i?.packPerCtn ?? "").toString().trim() !== "");
       const tableData = items.map((item, index) => [
         index + 1,
         `${item.product || ""} ${item.size ? `(${item.size})` : ""}`.trim(),
@@ -565,10 +535,14 @@ export default function App() {
         calcTotalPcs(item) > 0 ? calcTotalPcs(item).toString() : "-",
         item.avgWeightKg || "-",
       ]);
+      const totalCtn = items.reduce((acc, i) => acc + (parseFloat(i.totalCtn) || 0), 0);
+      const totalPcs = items.reduce((acc, i) => acc + calcTotalPcs(i), 0);
+      const totalEstKg = items.reduce((acc, i) => acc + (parseFloat(i.totalCtn) || 0) * (parseFloat(i.avgWeightKg) || 0), 0);
 
-      const totalCtn = (items || []).reduce((acc, i) => acc + (parseFloat(i.totalCtn) || 0), 0);
-      const totalPcs = (items || []).reduce((acc, i) => acc + calcTotalPcs(i), 0);
-      const totalEstKg = (items || []).reduce((acc, i) => acc + (parseFloat(i.totalCtn) || 0) * (parseFloat(i.avgWeightKg) || 0), 0);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.text("1. Product Loading (Carton Based)", leftX, currentY);
+      currentY += 6;
 
       doc.autoTable({
         startY: currentY,
@@ -597,11 +571,51 @@ export default function App() {
         ],
         footStyles: { fillColor: [241, 245, 249], textColor: [0, 0, 0], fontStyle: "bold", halign: "center" },
       });
-
-      currentY = doc.lastAutoTable.finalY + 8;
+      currentY = doc.lastAutoTable.finalY + 10;
     }
 
-    // Poly Bag section (print only if any value entered)
+    // 2. Grade Based - if has data
+    if (hasGradeItems) {
+      const gradeItems = (loadingForm.gradeItems || []).filter((g) => (g?.grade ?? "").trim() !== "" || (parseFloat(g?.bags) || 0) > 0 || (parseFloat(g?.kgs) || 0) > 0);
+      const gradeTableData = gradeItems.map((item, index) => [
+        index + 1,
+        item.grade || "",
+        item.bags || "0",
+        item.kgs || "0",
+      ]);
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.text("2. Grade Based Diaper Loading (Bill by KGs)", leftX, currentY);
+      currentY += 6;
+
+      doc.autoTable({
+        startY: currentY,
+        head: [["Sr.", "Grade", "No. of Bags", "Total KGs"]],
+        body: gradeTableData,
+        theme: "grid",
+        headStyles: { fillColor: [241, 245, 249], textColor: [0, 0, 0], fontStyle: "bold", halign: "center" },
+        columnStyles: {
+          0: { halign: "center" },
+          1: { halign: "center" },
+          2: { halign: "center" },
+          3: { halign: "center" },
+        },
+        styles: { textColor: [0, 0, 0], halign: "center" },
+        foot: [
+          [
+            "",
+            "GRAND TOTAL",
+            gradeItems.reduce((acc, i) => acc + (parseFloat(i.bags) || 0), 0).toString(),
+            gradeItems.reduce((acc, i) => acc + (parseFloat(i.kgs) || 0), 0).toString(),
+          ],
+        ],
+        footStyles: { fillColor: [241, 245, 249], textColor: [0, 0, 0], fontStyle: "bold", halign: "center" },
+      });
+      currentY = doc.lastAutoTable.finalY + 10;
+    }
+
+    // 3. Poly Bag / Packing Material - if has data
     const polyItemsRaw = loadingForm.polyItems || [];
     const polyItems = polyItemsRaw.filter((p) => {
       const name = (p?.name || "").toString().trim();
@@ -611,7 +625,12 @@ export default function App() {
       return name !== "" || size !== "" || (Number.isFinite(kgsNum) && kgsNum > 0);
     });
 
-    if (polyItems.length > 0) {
+    if (hasPolyItems && polyItems.length > 0) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.text("3. Poly Bag / Packing Material Loading", leftX, currentY);
+      currentY += 6;
+
       const polyTableData = polyItems.map((p, index) => [
         index + 1,
         p.name || "",
@@ -646,6 +665,21 @@ export default function App() {
       currentY = doc.lastAutoTable.finalY + 8;
     }
 
+    // Total Vehicle Load (Total Gadi Ka Weight)
+    const totalVehicleWeight = Math.round(
+      (loadingForm.items || []).reduce((acc, i) => acc + (parseFloat(i.totalCtn) || 0) * (parseFloat(i.avgWeightKg) || 0), 0) +
+      (loadingForm.gradeItems || []).reduce((acc, i) => acc + (parseFloat(i.kgs) || 0), 0) +
+      (loadingForm.polyItems || []).reduce((acc, p) => acc + (parseFloat(p.kgs) || 0), 0)
+    );
+    currentY += 8;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setFillColor(241, 245, 249);
+    doc.rect(leftX, currentY, pageWidth - 30, 10, "F");
+    doc.text("TOTAL VEHICLE LOAD (Total Gadi Ka Weight):", leftX + 15, currentY + 7);
+    doc.text(totalVehicleWeight + " KG", pageWidth - 60, currentY + 7, { align: "right" });
+    currentY += 14;
+
     // Signature area
     const finalY = currentY + 20;
     doc.setFont("helvetica", "bold");
@@ -675,29 +709,44 @@ export default function App() {
       ["Driver Phone", loadingForm.driverNo || ""],
       ["Transporter Name", loadingForm.transporterName || ""],
       ["LR No.", loadingForm.lrNo || ""],
-      ["Loading Type", loadingForm.loadingType === "grade" ? "Grade Based (A/B/C)" : "Regular (Carton Based)"],
+      ["Loading Type", (() => {
+        const hi = (loadingForm.items || []).some((i) => (i?.product ?? "").trim() !== "" || (i?.totalCtn ?? "").toString().trim() !== "" || (i?.packPerCtn ?? "").toString().trim() !== "");
+        const hg = (loadingForm.gradeItems || []).some((g) => (g?.grade ?? "").trim() !== "" || (parseFloat(g?.bags) || 0) > 0 || (parseFloat(g?.kgs) || 0) > 0);
+        const hp = (loadingForm.polyItems || []).some((p) => (p?.name ?? "").trim() !== "" || (p?.size ?? "").trim() !== "" || (parseFloat(p?.kgs) || 0) > 0);
+        return [hi && "Carton Based", hg && "Grade Based", hp && "Poly Bag"].filter(Boolean).join(", ") || "Regular (Carton Based)";
+      })()],
       ["Vehicle In (Date & Time)", loadingForm.vehicleIn ? new Date(loadingForm.vehicleIn).toLocaleString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : ""],
       ["Vehicle Out (Date & Time)", loadingForm.vehicleOut ? new Date(loadingForm.vehicleOut).toLocaleString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : ""],
       [],
     ];
-    if (loadingForm.loadingType === "grade") {
-      rows.push(["Sr.", "Grade", "No. of Bags", "Total KGs"]);
-      (loadingForm.gradeItems || []).forEach((item, i) => {
-        rows.push([i + 1, item.grade || "", item.bags || "0", item.kgs || "0"]);
-      });
-    } else {
-      const calcTotalPcs = (it) => {
-        const sz = parseFloat((String(it.size || '').match(/\d+/)?.[0]) || 0);
-        return sz * (parseFloat(it.packPerCtn) || 0) * (parseFloat(it.totalCtn) || 0);
-      };
+    const calcTotalPcs = (it) => {
+      const sz = parseFloat((String(it.size || '').match(/\d+/)?.[0]) || 0);
+      return sz * (parseFloat(it.packPerCtn) || 0) * (parseFloat(it.totalCtn) || 0);
+    };
+    const hi = (loadingForm.items || []).some((i) => (i?.product ?? "").trim() !== "" || (i?.totalCtn ?? "").toString().trim() !== "" || (i?.packPerCtn ?? "").toString().trim() !== "");
+    const hg = (loadingForm.gradeItems || []).some((g) => (g?.grade ?? "").trim() !== "" || (parseFloat(g?.bags) || 0) > 0 || (parseFloat(g?.kgs) || 0) > 0);
+    const hp = (loadingForm.polyItems || []).some((p) => (p?.name ?? "").trim() !== "" || (p?.size ?? "").trim() !== "" || (parseFloat(p?.kgs) || 0) > 0);
+
+    if (hi) {
+      rows.push([]);
+      rows.push(["1. Product Loading (Carton Based)"]);
       rows.push(["Sr.", "Item Description", "Pkt/Ctn", "Total Ctn", "Total PCS", "Avg Wt (KG)"]);
-      (loadingForm.items || []).forEach((item, i) => {
+      (loadingForm.items || []).filter((i) => (i?.product ?? "").trim() !== "" || (i?.totalCtn ?? "").toString().trim() !== "" || (i?.packPerCtn ?? "").toString().trim() !== "").forEach((item, i) => {
         rows.push([i + 1, `${item.product || ""} ${item.size ? `(${item.size})` : ""}`.trim(), item.packPerCtn || "", item.totalCtn || "", calcTotalPcs(item) || "", item.avgWeightKg || ""]);
       });
     }
-    const polyItems = (loadingForm.polyItems || []).filter((p) => (p?.name ?? "").trim() !== "" || (p?.size ?? "").trim() !== "" || (parseFloat(p?.kgs) || 0) > 0);
-    if (polyItems.length > 0) {
+    if (hg) {
       rows.push([]);
+      rows.push(["2. Grade Based Diaper Loading"]);
+      rows.push(["Sr.", "Grade", "No. of Bags", "Total KGs"]);
+      (loadingForm.gradeItems || []).filter((g) => (g?.grade ?? "").trim() !== "" || (parseFloat(g?.bags) || 0) > 0 || (parseFloat(g?.kgs) || 0) > 0).forEach((item, i) => {
+        rows.push([i + 1, item.grade || "", item.bags || "0", item.kgs || "0"]);
+      });
+    }
+    const polyItems = (loadingForm.polyItems || []).filter((p) => (p?.name ?? "").trim() !== "" || (p?.size ?? "").trim() !== "" || (parseFloat(p?.kgs) || 0) > 0);
+    if (hp && polyItems.length > 0) {
+      rows.push([]);
+      rows.push(["3. Poly Bag / Packing Material Loading"]);
       rows.push(["Sr.", "Poly Bag Name", "Size", "Total KGs"]);
       polyItems.forEach((p, i) => rows.push([i + 1, p.name || "", p.size || "", p.kgs || "0"]));
     }
@@ -1183,7 +1232,7 @@ export default function App() {
                     }`}>{item.status}</span>
                   </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4">
                   <div>
                     <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Challan No</div>
                     <div className="font-mono font-bold text-slate-700">{item.challanNo}</div>
@@ -1193,16 +1242,16 @@ export default function App() {
                     <div className="font-bold text-slate-700">{new Date(item.date).toLocaleDateString('en-GB')}</div>
                   </div>
                   <div>
-                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">
-                      {item.loadingType === 'grade' ? 'Total KGs (Diaper Grade)' : 'Total Cartons'}
+                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Cartons</div>
+                    <div className="text-2xl font-black text-orange-600">
+                      {(item.items || []).reduce((sum, i) => sum + (parseFloat(i.totalCtn) || 0), 0) || item.totalCtn || 0} Ctn
                     </div>
-                    {item.loadingType === 'grade' ? (
-                      <div className="text-2xl font-black text-purple-600">
-                        {item.gradeItems?.reduce((sum, i) => sum + (parseFloat(i.kgs) || 0), 0) || 0} KG
-                      </div>
-                    ) : (
-                      <div className="text-2xl font-black text-orange-600">{item.totalCtn} Ctn</div>
-                    )}
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Grade KGs</div>
+                    <div className="text-2xl font-black text-purple-600">
+                      {(item.gradeItems || []).reduce((sum, i) => sum + (parseFloat(i.kgs) || 0), 0) || 0} KG
+                    </div>
                   </div>
                   <div>
                     <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Poly KGs</div>
@@ -1211,7 +1260,7 @@ export default function App() {
                     </div>
                   </div>
                 </div>
-                {item.loadingType === 'grade' && item.gradeItems && item.gradeItems.length > 0 && (
+                {item.gradeItems && item.gradeItems.length > 0 && (
                   <div className="mt-4 pt-4 border-t border-slate-200">
                     <div className="text-[10px] font-black text-purple-600 uppercase tracking-widest mb-3">Grade Based Items (Bill by KGs)</div>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -1239,14 +1288,14 @@ export default function App() {
                     </div>
                   </div>
                 )}
-                {item.loadingType !== 'grade' && item.items && item.items.length > 0 && (
+                {item.items && item.items.length > 0 && (
                   <div className="mt-4 pt-4 border-t border-slate-200">
-                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Loaded Items</div>
+                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Product Loading (Carton Based)</div>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                       {item.items.map((product, pIdx) => (
                         <div key={pIdx} className="bg-white p-3 rounded-xl border border-slate-100">
-                          <div className="font-bold text-slate-800 text-sm">{product.product}</div>
-                          <div className="text-xs text-slate-500 mt-1">Size: {product.size} | Qty: {product.ctn} Ctn</div>
+                          <div className="font-bold text-slate-800 text-sm">{product.product} {product.size ? `(${product.size})` : ''}</div>
+                          <div className="text-xs text-slate-500 mt-1">Pkt/Ctn: {product.packPerCtn || '-'} | Ctn: {product.totalCtn || product.ctn || '-'}</div>
                         </div>
                       ))}
                     </div>
@@ -1509,29 +1558,11 @@ export default function App() {
             />
           </div>
         </div>
-        <div className="bg-white p-6 md:p-10 rounded-[3rem] border border-slate-100 shadow-sm">
-          <div className="mb-6">
-            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 px-1">Loading Type</label>
-            <div className="flex bg-slate-100 p-1 rounded-2xl">
-              <button 
-                onClick={() => setLoadingForm({...loadingForm, loadingType: 'regular'})} 
-                className={`flex-1 py-4 rounded-xl font-black text-sm transition-all ${loadingForm.loadingType === 'regular' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}
-              >
-                Regular (Carton Based)
-              </button>
-              <button 
-                onClick={() => setLoadingForm({...loadingForm, loadingType: 'grade'})} 
-                className={`flex-1 py-4 rounded-xl font-black text-sm transition-all ${loadingForm.loadingType === 'grade' ? 'bg-white text-purple-600 shadow-sm' : 'text-slate-500'}`}
-              >
-                Grade Based (A/B/C)
-              </button>
-            </div>
-          </div>
-
-          {loadingForm.loadingType === 'regular' ? (
-            <>
-              <div className="flex justify-between items-center mb-8">
-                <h4 className="text-xl font-black text-slate-800">Product Loading Entry</h4>
+        <div className="bg-white p-6 md:p-10 rounded-[3rem] border border-slate-100 shadow-sm space-y-10">
+          {/* 1. Regular (Carton Based) - Product Loading Entry */}
+          <div>
+              <div className="flex justify-between items-center mb-6">
+                <h4 className="text-xl font-black text-slate-800">1. Product Loading (Carton Based)</h4>
                 <button onClick={addLoadingItem} className="flex items-center gap-2 px-5 py-2.5 bg-slate-900 text-white rounded-xl font-bold text-xs hover:bg-black transition-all"><Plus size={14} /> Add Line</button>
               </div>
               <div className="space-y-6">
@@ -1559,11 +1590,12 @@ export default function App() {
                   </div>
                 );})}
               </div>
-            </>
-          ) : (
-            <>
-              <div className="flex justify-between items-center mb-8">
-                <h4 className="text-xl font-black text-slate-800">Grade Based Diaper Loading (Bill by KGs)</h4>
+          </div>
+
+          {/* 2. Grade Based Diaper Loading */}
+          <div>
+              <div className="flex justify-between items-center mb-6">
+                <h4 className="text-xl font-black text-slate-800">2. Grade Based Diaper Loading (Bill by KGs)</h4>
                 <button onClick={addGradeItem} className="flex items-center gap-2 px-5 py-2.5 bg-purple-600 text-white rounded-xl font-bold text-xs hover:bg-purple-700 transition-all"><Plus size={14} /> Add Grade</button>
               </div>
               <div className="space-y-4">
@@ -1582,14 +1614,13 @@ export default function App() {
                   </div>
                 ))}
               </div>
-            </>
-          )}
+          </div>
         </div>
 
-        {/* Poly Bag Loading (Optional - same challan) */}
+        {/* 3. Poly Bag / Packing Material Loading */}
         <div className="bg-white p-6 md:p-10 rounded-[3rem] border border-slate-100 shadow-sm">
           <div className="flex justify-between items-center mb-8">
-            <h4 className="text-xl font-black text-slate-800">Poly Bag Loading (Optional)</h4>
+            <h4 className="text-xl font-black text-slate-800">3. Poly Bag / Packing Material Loading</h4>
             <button
               onClick={addPolyItem}
               className="flex items-center gap-2 px-5 py-2.5 bg-slate-900 text-white rounded-xl font-bold text-xs hover:bg-black transition-all"
@@ -1645,42 +1676,76 @@ export default function App() {
             ))}
           </div>
         </div>
-        <div className="bg-slate-900 p-10 rounded-[3rem] text-white flex flex-col md:flex-row items-center justify-between gap-8">
-          <div><h4 className="text-2xl font-black mb-2">Ready to Dispatch?</h4><p className="text-slate-400 font-medium">{loadingForm.loadingType === 'grade' ? 'Verify total bags and KGs before submitting data to billing.' : 'Verify total carton count before submitting data to billing.'}</p></div>
-          <div className="flex items-center gap-10">
-             {loadingForm.loadingType === 'regular' ? (
-               <div className="flex items-center gap-8">
-                 <div className="text-center">
-                   <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Total Load</div>
-                   <div className="text-4xl font-black text-blue-400">
-                     {loadingForm.items.reduce((acc, i) => acc + (parseFloat(i.totalCtn) || 0), 0)} <span className="text-sm">Ctn</span>
+        <div className="bg-slate-900 p-10 rounded-[3rem] text-white">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-8 mb-8">
+            <div><h4 className="text-2xl font-black mb-2">Ready to Dispatch?</h4><p className="text-slate-400 font-medium">Verify all loading details before submitting data to billing.</p></div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+             {(loadingForm.items || []).some((i) => (i?.product ?? "").trim() !== "" || (i?.totalCtn ?? "").toString().trim() !== "") && (
+               <div className="bg-slate-800/80 rounded-2xl p-6 border border-blue-500/30">
+                 <div className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-3">1. Carton Based Total</div>
+                 <div className="space-y-3">
+                   <div>
+                     <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-0.5">Total Ctn</div>
+                     <div className="text-2xl font-black text-blue-400">{(loadingForm.items || []).reduce((acc, i) => acc + (parseFloat(i.totalCtn) || 0), 0)}</div>
                    </div>
-                 </div>
-                 {loadingForm.items.some(i => i.avgWeightKg && Number(i.avgWeightKg) > 0) && (
-                   <div className="text-center">
-                     <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Est. Weight</div>
-                     <div className="text-4xl font-black text-emerald-400">
-                       {Math.round(loadingForm.items.reduce((acc, i) => acc + (parseFloat(i.totalCtn) || 0) * (parseFloat(i.avgWeightKg) || 0), 0))} <span className="text-sm">KG</span>
+                   <div>
+                     <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-0.5">Total PCS</div>
+                     <div className="text-2xl font-black text-blue-300">
+                       {(loadingForm.items || []).reduce((acc, i) => {
+                         const sz = parseFloat((String(i.size || '').match(/\d+/)?.[0]) || 0);
+                         return acc + sz * (parseFloat(i.packPerCtn) || 0) * (parseFloat(i.totalCtn) || 0);
+                       }, 0)}
                      </div>
                    </div>
-                 )}
-               </div>
-             ) : (
-               <div className="text-center space-y-2">
-                 <div>
-                   <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Total Bags</div>
-                   <div className="text-3xl font-black text-purple-400">
-                     {loadingForm.gradeItems.reduce((acc, i) => acc + (parseFloat(i.bags) || 0), 0)} <span className="text-sm">Bags</span>
-                   </div>
-                 </div>
-                 <div>
-                   <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Total KGs</div>
-                   <div className="text-3xl font-black text-purple-400">
-                     {loadingForm.gradeItems.reduce((acc, i) => acc + (parseFloat(i.kgs) || 0), 0)} <span className="text-sm">KG</span>
+                   <div>
+                     <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-0.5">Est. Weight</div>
+                     <div className="text-2xl font-black text-emerald-400">
+                       {Math.round((loadingForm.items || []).reduce((acc, i) => acc + (parseFloat(i.totalCtn) || 0) * (parseFloat(i.avgWeightKg) || 0), 0))} <span className="text-sm">KG</span>
+                     </div>
                    </div>
                  </div>
                </div>
              )}
+             {(loadingForm.gradeItems || []).some((g) => (g?.grade ?? "").trim() !== "" || (parseFloat(g?.bags) || 0) > 0 || (parseFloat(g?.kgs) || 0) > 0) && (
+               <div className="bg-slate-800/80 rounded-2xl p-6 border border-purple-500/30">
+                 <div className="text-[10px] font-black text-purple-400 uppercase tracking-widest mb-3">2. Grade Based Total</div>
+                 <div className="space-y-3">
+                   <div>
+                     <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-0.5">Total Bags</div>
+                     <div className="text-2xl font-black text-purple-400">{(loadingForm.gradeItems || []).reduce((acc, i) => acc + (parseFloat(i.bags) || 0), 0)}</div>
+                   </div>
+                   <div>
+                     <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-0.5">Total KGs</div>
+                     <div className="text-2xl font-black text-purple-400">{(loadingForm.gradeItems || []).reduce((acc, i) => acc + (parseFloat(i.kgs) || 0), 0)} <span className="text-sm">KG</span></div>
+                   </div>
+                 </div>
+               </div>
+             )}
+             {(loadingForm.polyItems || []).some((p) => (p?.name ?? "").trim() !== "" || (p?.size ?? "").trim() !== "" || (parseFloat(p?.kgs) || 0) > 0) && (
+               <div className="bg-slate-800/80 rounded-2xl p-6 border border-amber-500/30">
+                 <div className="text-[10px] font-black text-amber-400 uppercase tracking-widest mb-3">3. Packing Material Total</div>
+                 <div>
+                   <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-0.5">Total KGs</div>
+                   <div className="text-2xl font-black text-amber-400">{(loadingForm.polyItems || []).reduce((acc, p) => acc + (parseFloat(p.kgs) || 0), 0)} <span className="text-sm">KG</span></div>
+                 </div>
+               </div>
+             )}
+             <div className="bg-slate-800 rounded-2xl p-6 border-2 border-white/30">
+               <div className="text-[10px] font-black text-white uppercase tracking-widest mb-3">Total Vehicle Load</div>
+               <div>
+                 <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Total Weight in Gadi</div>
+                 <div className="text-3xl font-black text-white">
+                   {Math.round(
+                     (loadingForm.items || []).reduce((acc, i) => acc + (parseFloat(i.totalCtn) || 0) * (parseFloat(i.avgWeightKg) || 0), 0) +
+                     (loadingForm.gradeItems || []).reduce((acc, i) => acc + (parseFloat(i.kgs) || 0), 0) +
+                     (loadingForm.polyItems || []).reduce((acc, p) => acc + (parseFloat(p.kgs) || 0), 0)
+                   )} <span className="text-base">KG</span>
+                 </div>
+               </div>
+             </div>
+          </div>
+          <div className="flex justify-end">
              <div className="relative">
                <button
                  type="button"
