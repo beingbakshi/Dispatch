@@ -665,20 +665,23 @@ export default function App() {
       currentY = doc.lastAutoTable.finalY + 8;
     }
 
-    // Total Vehicle Load (Total Gadi Ka Weight)
-    const totalVehicleWeight = Math.round(
-      (loadingForm.items || []).reduce((acc, i) => acc + (parseFloat(i.totalCtn) || 0) * (parseFloat(i.avgWeightKg) || 0), 0) +
-      (loadingForm.gradeItems || []).reduce((acc, i) => acc + (parseFloat(i.kgs) || 0), 0) +
-      (loadingForm.polyItems || []).reduce((acc, p) => acc + (parseFloat(p.kgs) || 0), 0)
-    );
-    currentY += 8;
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
-    doc.setFillColor(241, 245, 249);
-    doc.rect(leftX, currentY, pageWidth - 30, 10, "F");
-    doc.text("TOTAL VEHICLE LOAD (Total Gadi Ka Weight):", leftX + 15, currentY + 7);
-    doc.text(totalVehicleWeight + " KG", pageWidth - 60, currentY + 7, { align: "right" });
-    currentY += 14;
+    // Total Vehicle Load (Total Gadi Ka Weight) - only when 2+ categories have data
+    const categoryCount = (hasItems ? 1 : 0) + (hasGradeItems ? 1 : 0) + (hasPolyItems ? 1 : 0);
+    if (categoryCount >= 2) {
+      const totalVehicleWeight = Math.round(
+        (loadingForm.items || []).reduce((acc, i) => acc + (parseFloat(i.totalCtn) || 0) * (parseFloat(i.avgWeightKg) || 0), 0) +
+        (loadingForm.gradeItems || []).reduce((acc, i) => acc + (parseFloat(i.kgs) || 0), 0) +
+        (loadingForm.polyItems || []).reduce((acc, p) => acc + (parseFloat(p.kgs) || 0), 0)
+      );
+      currentY += 8;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.setFillColor(241, 245, 249);
+      doc.rect(leftX, currentY, pageWidth - 30, 10, "F");
+      doc.text("TOTAL VEHICLE LOAD (Total Gadi Ka Weight):", leftX + 15, currentY + 7);
+      doc.text(totalVehicleWeight + " KG", pageWidth - 60, currentY + 7, { align: "right" });
+      currentY += 14;
+    }
 
     // Signature area
     const finalY = currentY + 20;
